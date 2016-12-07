@@ -1,0 +1,44 @@
+﻿@{
+    ViewBag.Title = "All results";
+}
+
+<div class="container-fluid">
+    <h1>Showed 1k most slow pages for test with id: @ViewBag.TestId</h1>
+    <div class="panel panel-info">
+        <div class="panel-heading">Search</div>
+        <div class="panel-body">
+            @if(ViewBag.data == null || ViewBag.data.Length == 0) {
+                <h3>Nothing found</h3>
+            } else {
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Url</th>
+                            <th>Response status code</th>
+                            <th>Minimal response time</th>
+                            <th>Avergae response time</th>
+                            <th>Maximal response time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach(var v in ViewBag.data) {
+                            <tr>
+                                <td>@v.PageUrl</td>
+                                <td>@v.Status</td>
+                                @if(v.MinTime == 99999.00) {
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                } else {
+                                    <td>@v.MinTime</td>
+                                    <td>@v.AvgTime</td>
+                                    <td>@v.MaxTime</td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>

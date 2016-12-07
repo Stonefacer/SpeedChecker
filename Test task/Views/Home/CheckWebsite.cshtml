@@ -1,0 +1,277 @@
+﻿@{
+    ViewBag.Title = "Check website";
+}
+
+<div class="container-fluid">
+    <h1>Check website performance</h1>
+    <div id="errorMessageContainer" class="alert alert-warning alert-dismissible hidden" role="alert">
+        <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        <strong>Error!</strong> <span id="errorMessage"></span>
+    </div>
+    <div id="panelChartResults" class="panel panel-info hidden">
+        <div class="panel-heading">Chart</div>
+        <div class="panel-body">
+            <canvas id="chart" width="1100" height="400"></canvas>
+        </div>
+    </div>
+    <div class="panel panel-default">
+        <div class="panel-body">
+            <div id="mainForm" class="form-inline" disabled>
+                <div class="row">
+                    <div class="col-lg-8 col-md-7 col-sm-6 col-xs-5">
+                        <input id="url" type="text" style="width: 100%; max-width: 100%" class="form-control" placeholder="Tape your url here...">
+                    </div>
+                    <div class="col-lg-4 col-md-5 col-sm-6 col-xs-7">
+                        <button id="start" class="btn btn-default" type="button" disabled>Start</button>
+                        &nbsp;&nbsp;&nbsp;
+                        <span id="currentState" class="label label-default">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="panelTableResults" class="panel panel-info hidden">
+        <div class="panel-heading">Results</div>
+        <div class="panel-body">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Url</th>
+                        <th>Status code</th>
+                        <th>Minimal response time</th>
+                        <th>Average response time</th>
+                        <th>Maximal response time</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsTable"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<lu id="testMessages">
+
+</lu>
+
+@section scripts{
+    <script src="~/Scripts/jquery.cookie-1.4.1.min.js"></script>
+    <script src="~/Scripts/jquery.signalR-2.2.1.min.js"></script>
+    <script src="~/signalr/hubs"></script>
+    <script src="~/Scripts/Chart.min.js"></script>
+    <script>
+
+        var lastIntervalId = undefined;
+        var session;
+        var lastPageInfo;
+        var tableData = [];
+        var chartObject;
+        var chartData;
+        var chartMaxPointsCount = 1000;
+
+        function hideError() {
+            $("#errorMessageContainer").addClass("hidden");
+            lastIntervalId = undefined;
+        }
+
+        function setState(state) {
+            $("#currentState").html(state);
+        }
+
+        function showError(msg, permanent) {
+            setState("Failed");
+            $("#errorMessage").html(msg);
+            $("#errorMessageContainer").removeClass("hidden");
+            if (typeof LastIntervalId !== 'undefined') {
+                clearInterval(lastIntervalId);
+            }
+            if(permanent !== true)
+                lastIntervalId = setTimeout(hideError, 10000);
+        }
+
+        function btnStartClick() {
+            setState("Starting...");
+            $("#testMessages").empty();
+            $("#panelTableResults").removeClass("hidden");
+            tableData = [];
+            session.server.start($("#url").val())
+                .fail(function () {
+                    showError("Something went wrong. Please update page and try again.")
+                });
+        }
+
+        function btnCancelClick() {
+            session.server.cancel()
+                .fail(function () {
+                    showError("Something went wrong. Please update page and try again.")
+                });
+        }
+
+        function connectionStateChanged(state) {
+            //0: connecting
+            //1: connected
+            //2: reconnecting
+            //4: disconnected
+            if (state.newState == 2 || state.newState == 4) {
+                showError("Server closed connection. Trying to reconnect...", true);
+                if (state.newState == 4)
+                    connect();
+            }
+        };
+
+        function connect() {
+            $.connection.hub.start()
+                .done(function () {
+                    $("#mainForm").prop("disabled", false);
+                    $("#start").prop("disabled", false);
+                    setState("Ready");
+                    hideError();
+                })
+                .fail(function () {
+                    showError("Something went wrong. Please update page and try again.", true);
+                });
+            session = $.connection.sessionHub;
+        }
+
+        function setGuiState(stateId, data) {
+            if (stateId == 0) { // ready
+                $("#url").prop("disabled", false);
+                btn = $("#start");
+                btn.html("Start");
+                btn.unbind("click");
+                btn.click(btnStartClick);
+                setState("Ready!");
+            } else if (stateId == 1) { // job in progress
+                $("#url").prop("disabled", true);
+                $("#url").val(data.url);
+                btn = $("#start");
+                btn.html("Cancel");
+                btn.unbind("click");
+                btn.click(btnCancelClick);
+                $("#panelTableResults").removeClass("hidden");
+                initChart();
+            }
+        }
+
+        function updateCurrentState(data) {
+            data = JSON.parse(data);
+            lastPageInfo = data;
+            $("#url").val(data.currentUrl);
+            if (data.minTime == "99999.00") {
+                state = "Status code: " + data.statusCode;
+            } else {
+                state = data.minTime + "ms/" + data.avgTime + "ms/" + data.maxTime + "ms";
+            }
+            setState(state);
+        }
+
+        function pageAnalyzeCompleted() {
+            if (typeof lastPageInfo != 'undefined')
+                updateResultsTable();
+        }
+
+        function getTableRow(obj) {
+            return "<tr><td>" + obj.currentUrl + "</td>"
+                    + "<td>" + obj.statusCode + "</td>"
+                    + "<td>" + (obj.minTime == "99999.00" ? "-" : obj.minTime) + "</td>"
+                    + "<td>" + (obj.avgTime == "99999.00" ? "-" : obj.avgTime) + "</td>"
+                    + "<td>" + (obj.maxTime == "99999.00" ? "-" : obj.maxTime) + "</td></tr>";
+        }
+
+        function updateResultsTable() {
+            table = $("#resultsTable");
+            updateChart();
+            table.empty();
+            if (tableData.length >= 1000) {
+                buf = tableData[tableData.length - 1];
+                if (buf.avgTime <= lastPageInfo.avgTime)
+                    tableData[tableData.length - 1] = lastPageInfo;
+            } else {
+                tableData.push(lastPageInfo);
+            }
+            // insert sort migth be useful here but whatever
+            tableData.sort(function (a, b) { return b.avgTime - a.avgTime; });
+            for (i = 0; i < tableData.length; i++) {
+                table.append(getTableRow(tableData[i]));
+            }
+        }
+
+        function initChart() {
+            if (typeof chartData != 'undefined') {
+                clearChart();
+                return;
+            }
+            width = $("#panelChartResults").width() - 1;
+            if (width > 400)
+                width = 400;
+            chartData = {
+                labels: [],
+                datasets: [
+                  {
+                      label: "Average response time for page (ms)",
+                      fillColor: "rgba(164,255,164,0.5)",
+                      strokeColor: "rgba(164,255,164,1)",
+                      pointColor: "rgba(164,255,164,1)",
+                      pointStrokeColor: "#fff",
+                      data: []
+                  }
+                ]
+            };
+        }
+
+        function clearChart() {
+            chartData.datasets[0].data = [];
+            chartData.labels = [];
+            chartObject.update(chartData);
+        }
+
+        function updateChart() {
+            $("#panelChartResults").removeClass("hidden");
+            if (lastPageInfo.statusCode != 200) {
+                return;
+            }
+            if (chartData.datasets[0].data.length >= chartMaxPointsCount) {
+                chartData.datasets[0].data.splice(0, 1);
+            } else {
+                chartData.labels.push(lastPageInfo.currentUrl);
+            }
+            chartData.datasets[0].data.push(lastPageInfo.avgTime);
+            if (typeof chartObject == 'undefined') {
+                var ctx = document.getElementById("chart").getContext("2d");
+                chartObject = new Chart(ctx, {
+                    type: 'line',
+                    data: chartData,
+                    options: {
+                        scales: {
+                            xAxes: [{
+                                display: false
+                            }]
+                        }
+                    }
+                });
+            }
+            chartObject.update(chartData);
+        }
+
+        $(function () {
+            $.connection.hub.qs = { "UserKey": $.cookie("UserKey") };
+            $.connection.hub.stateChanged(connectionStateChanged);
+            connect();
+            $('#start').click(btnStartClick);
+            session.client.addTestMessage = function (message) {
+                $("#testMessages").append("<li>" + message + '</li>');
+            };
+            session.client.setGuiState = function (stateId, data) {
+                if (data !== "")
+                    data = JSON.parse(data);
+                setGuiState(stateId, data);
+            };
+            session.client.setUserKey = function (userKey) {
+                $.cookie("UserKey", userKey, { expires: 10, domain: '/' });
+                $.connection.hub.qs = { "UserKey": userKey };
+                connect();
+            };
+            session.client.pageAnalyzeCompleted = pageAnalyzeCompleted;
+            session.client.sendErrorMessage = showError;
+            session.client.updateCurrentState = updateCurrentState;
+        });
+    </script>
+}

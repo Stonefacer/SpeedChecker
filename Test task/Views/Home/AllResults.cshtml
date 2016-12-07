@@ -1,0 +1,62 @@
+﻿@model Test_task.Models.AllResultsModel
+@{
+    ViewBag.Title = "All results";
+}
+
+<div class="container-fluid">
+    <h1>Here you can find information about all previous tests</h1>
+    <div class="panel panel-info">
+        <div class="panel-heading">Search</div>
+        <div class="panel-body">
+            @using(Html.BeginForm("AllResults", "Home", FormMethod.Post, new { @class = "form-inline" })) {
+                @Html.TextBoxFor(model => model.Hostname, new { @class = "form-control", placehlder = "Please tape a hostname" })
+                <input type="submit" value="Search" class="btn btn-default" />
+                @Html.ValidationMessageFor(model => model.Hostname, null, new { @class = "label label-danger" })
+            }
+        </div>
+    </div>
+    @if(ViewBag.ShowResults) {
+        <div class="panel panel-info">
+            <div class="panel-heading">Search resulsts</div>
+            <div class="panel-body">
+                @if(ViewBag.data == null || ViewBag.data.Length == 0) {
+                    <h5>Nothing found</h5>
+                } else {
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Start URL</th>
+                                <th>Pages count</th>
+                                <th>Errors count</th>
+                                <th>Average response time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach(var v in ViewBag.data) {
+                                <tr class="clickable-row hand-mouse-row" data-href="@Url.Action("ShowPages", "Home", new { id = v.Id })">
+                                    <th>@v.Url</th>
+                                    <th>@v.PagesCount</th>
+                                    <th>@v.ErrorsCount</th>
+                                    @if(v.AvgTime == null) {
+                                        <th>-</th>
+                                    } else {
+                                        <th>@v.AvgTime</th>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+</div>
+@section scripts{
+    <script>
+        $(function () {
+            $(".clickable-row").click(function () {
+                window.document.location = $(this).data("href");
+            });
+        });
+    </script>
+}

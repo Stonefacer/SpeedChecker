@@ -1,0 +1,53 @@
+﻿@{
+    ViewBag.Title = "Home Page";
+}
+
+<div class="container-fluid">
+    <div class="jumbotron">
+        <h1>Website performence check tool</h1>
+        <p class="lead">You can check performance of your website by one click! FREE!</p>
+        <p>
+            @Html.ActionLink("Start now", "CheckWebsite", "Home", new { @class = "btn btn-primary btn-lg" })
+        </p>
+    </div>
+    <div class="panel panel-info">
+        <div class="panel-heading">Last results</div>
+        <div class="panel-body">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Start URL</th>
+                        <th>Pages count</th>
+                        <th>Errors count</th>
+                        <th>Average response time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach(var v in ViewBag.data) {
+                        <tr>
+                            <td>@v.Url</td>
+                            <td>@v.PagesCount</td>
+                            <td>@v.ErrorsCount</td>
+                            <td>@v.AvgTime.ToString("F03")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+
+
+<ul id="discussion">
+
+</ul>
+
+
+@section scripts{
+<script>
+    $(function () {
+        // coming soon... (maybe)
+    });
+</script>
+}

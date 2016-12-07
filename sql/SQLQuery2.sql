@@ -1,0 +1,1 @@
+﻿SELECT * FROM Tests as t inner join Pages as p ON(t.Id=p.Result_Id);
