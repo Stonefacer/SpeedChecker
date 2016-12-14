@@ -12,9 +12,9 @@ namespace Test_task.DataBases {
         private static TestsContext _lastInstance;
 
         public static TestsContext Instance() {
-            if(_lastInstance == null)
-                _lastInstance = new TestsContext();
-            return _lastInstance;
+            //if(_lastInstance == null)
+                //_lastInstance = new TestsContext();
+            return new TestsContext();
         }
 
         public DbSet<Test> Tests { get; set; }

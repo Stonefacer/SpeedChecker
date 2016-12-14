@@ -55,7 +55,8 @@ namespace Test_task.Custom.SignalR {
             _worker.NewTestMessage += _worker_NewTestMessage;
             _worker.PageStateChanged += _worker_PageStateChanged;
             _worker.PageAnalyzeCompleted += _worker_PageAnalyzeCompleted;
-            _worker.Start();
+            if(_worker.CheckOwner(UserKey))
+                _worker.Start();
         }
 
         private void _worker_PageAnalyzeCompleted(object sender, CustomEventArgs.PageAnalyzeCompletedEventArgs e) {
@@ -81,6 +82,7 @@ namespace Test_task.Custom.SignalR {
                 _worker.NewTestMessage -= _worker_NewTestMessage;
                 _worker.PageStateChanged -= _worker_PageStateChanged;
                 _worker.PageAnalyzeCompleted -= _worker_PageAnalyzeCompleted;
+                _worker = null;
             }
         }
 

@@ -92,6 +92,7 @@ namespace Test_task.Custom.SignalR {
             if(User == null) {
                 Clients.Caller.sendErrorMessage("Something went wrong. Please update page and try again.");
             } else if(!User.HasWorker()) {
+                User.CloseSession();
                 User.SetGuiState(0);
             } else {
                 User.CloseWorker();

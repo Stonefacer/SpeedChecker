@@ -19,7 +19,7 @@ using Test_task.Custom.CustomEventArgs;
 namespace Test_task.Custom.Workers {
     public class Worker {
 
-        private static ConcurrentDictionary<Uri, Worker> _workers = new ConcurrentDictionary<Uri, Worker>();
+        private static ConcurrentDictionary<string, Worker> _workers = new ConcurrentDictionary<string, Worker>();
 
         public static int Count { get; private set; }
 
@@ -30,11 +30,11 @@ namespace Test_task.Custom.Workers {
                 return null;
             }
             status = "";
-            if(_workers.ContainsKey(currentUri)) {
-                return _workers[currentUri];
+            if(_workers.ContainsKey(currentUri.Host)) {
+                return _workers[currentUri.Host];
             } else {
                 var worker = new Worker(currentUri, OwnerKey);
-                _workers[currentUri] = worker;
+                _workers[currentUri.Host] = worker;
                 return worker;
             }
         }
@@ -87,7 +87,9 @@ namespace Test_task.Custom.Workers {
 
         private void OnWorkerStopped() {
             Worker res;
-            _workers.TryRemove(RootUrl, out res);
+            _workers.TryRemove(RootUrl.Host, out res);
+            _pages.Clear();
+            _allFoundPages.Clear();
             Stopped?.Invoke(this, null);
         }
 
@@ -123,13 +125,15 @@ namespace Test_task.Custom.Workers {
                     if(idFinish == -1)
                         return;
                     var url = text.Substring(idStart, idFinish - idStart);
-                    Uri currentUri = null;
+                    Uri currentUri;
                     if(Uri.IsWellFormedUriString(url, UriKind.Absolute)) {
                         currentUri = new Uri(url, UriKind.Absolute);
                     } else if(Uri.IsWellFormedUriString(url, UriKind.Relative)) {
                         currentUri = new Uri(rootUri, url);
+                    } else {
+                        continue;
                     }
-                    if(currentUri != null && currentUri.Host.IndexOf(RootUrl.Host) != -1) {
+                    if(currentUri.Host.IndexOf(RootUrl.Host) != -1) {
                         if(!_allFoundPages.Contains(currentUri)) {
                             _allFoundPages.Add(currentUri);
                             lock(_syncRootQueue) {
@@ -137,7 +141,6 @@ namespace Test_task.Custom.Workers {
                             }
                         }
                     }
-                    idStart = idFinish + 1;
                 }
             });
         }
@@ -180,22 +183,24 @@ namespace Test_task.Custom.Workers {
                     content = SendRequest(currentUri, false, out time);
                 } catch(WebException exception) {
                     var response = exception.Response as HttpWebResponse;
-                    OnPageStateChanged(new PageStateChangedEventArgs() {
-                        MinTime = 99999,
-                        AvgTime = 99999,
-                        MaxTime = 99999,
-                        CurrentUrl = currentUri.ToString(),
-                        Status = (int)response.StatusCode
-                    });
-                    root.PageInfos.Add(new Page() {
-                        AvgTime = 99999,
-                        MaxTime = 99999,
-                        MinTime = 99999,
-                        PageUrl = currentUri.ToString(),
-                        Result = root,
-                        Status = (int)response.StatusCode
-                    });
-                    dbMain.SaveChanges();
+                    if(response != null) {
+                        OnPageStateChanged(new PageStateChangedEventArgs() {
+                            MinTime = 99999,
+                            AvgTime = 99999,
+                            MaxTime = 99999,
+                            CurrentUrl = currentUri.ToString(),
+                            Status = (int)response.StatusCode
+                        });
+                        root.PageInfos.Add(new Page() {
+                            AvgTime = 99999,
+                            MaxTime = 99999,
+                            MinTime = 99999,
+                            PageUrl = currentUri.ToString(),
+                            Result = root,
+                            Status = (int)response.StatusCode
+                        });
+                        dbMain.SaveChanges();
+                    }
                     OnPageAnalyzeCompleted();
                     PagesChecked++;
                     continue;

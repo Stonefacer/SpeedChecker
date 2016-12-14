@@ -118,17 +118,17 @@
         };
 
         function connect() {
+            // atleast one client method MUST be placed before .start(), otherwise OnConnected() won't be called on server.
             $.connection.hub.start()
                 .done(function () {
+                    //$('#start').click(btnStartClick);
                     $("#mainForm").prop("disabled", false);
                     $("#start").prop("disabled", false);
-                    setState("Ready");
                     hideError();
                 })
                 .fail(function () {
                     showError("Something went wrong. Please update page and try again.", true);
                 });
-            session = $.connection.sessionHub;
         }
 
         function setGuiState(stateId, data) {
@@ -146,6 +146,7 @@
                 btn.html("Cancel");
                 btn.unbind("click");
                 btn.click(btnCancelClick);
+                setState("Loading started job...");
                 $("#panelTableResults").removeClass("hidden");
                 initChart();
             }
@@ -254,8 +255,10 @@
         $(function () {
             $.connection.hub.qs = { "UserKey": $.cookie("UserKey") };
             $.connection.hub.stateChanged(connectionStateChanged);
-            connect();
-            $('#start').click(btnStartClick);
+            session = $.connection.sessionHub;
+            session.client.pageAnalyzeCompleted = pageAnalyzeCompleted;
+            session.client.sendErrorMessage = showError;
+            session.client.updateCurrentState = updateCurrentState;
             session.client.addTestMessage = function (message) {
                 $("#testMessages").append("<li>" + message + '</li>');
             };
@@ -265,13 +268,12 @@
                 setGuiState(stateId, data);
             };
             session.client.setUserKey = function (userKey) {
-                $.cookie("UserKey", userKey, { expires: 10, domain: '/' });
+                $.cookie("UserKey", userKey);
                 $.connection.hub.qs = { "UserKey": userKey };
-                connect();
+                $.connection.hub.stop();
+                $.connection.hub.start();
             };
-            session.client.pageAnalyzeCompleted = pageAnalyzeCompleted;
-            session.client.sendErrorMessage = showError;
-            session.client.updateCurrentState = updateCurrentState;
+            connect();
         });
     </script>
 }
