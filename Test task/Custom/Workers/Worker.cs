@@ -113,34 +113,57 @@ namespace Test_task.Custom.Workers {
             return host0.Equals(host1);
         }
 
+        private bool TryFindNextUrl(string text, ref int position, out string result, char quote = '"') {
+            int idStart = text.IndexOf("href=" + quote, position);
+            result = "";
+            if(idStart == -1)
+                return false;
+            idStart += 6;
+            int idFinish = idFinish = text.IndexOf(quote, idStart);
+            if(idFinish == -1)
+                return false;
+            result = text.Substring(idStart, idFinish - idStart);
+            position = idFinish;
+            return true;
+        }
+
+        private bool TryParseUri(string url, Uri rootUri, out Uri result) {
+            if(Uri.IsWellFormedUriString(url, UriKind.Absolute)) {
+                result = new Uri(url, UriKind.Absolute);
+                return true;
+            }
+            if(Uri.IsWellFormedUriString(url, UriKind.Relative)) {
+                result = new Uri(rootUri, url);
+                return true;
+            }
+            result = null;
+            return false;
+        }
+
+        private void AddUri(Uri newUri) {
+            if(newUri.Host.IndexOf(RootUrl.Host) != -1) {
+                if(!_allFoundPages.Contains(newUri)) {
+                    _allFoundPages.Add(newUri);
+                    lock(_syncRootQueue) {
+                        _pages.Enqueue(newUri);
+                    }
+                }
+            }
+        }
+
         private Task ReadUrls(string text, Uri rootUri) { // Should I use ~/sitemap.xml? Regex?
             return Task.Factory.StartNew(() => {
-                int idStart = 0;
-                while(true) {
-                    idStart = text.IndexOf("href=\"", idStart);
-                    if(idStart == -1)
-                        return;
-                    idStart += 6;
-                    int idFinish = text.IndexOf("\"", idStart);
-                    if(idFinish == -1)
-                        return;
-                    var url = text.Substring(idStart, idFinish - idStart);
+                int position = 0;
+                string url;
+                while(TryFindNextUrl(text, ref position, out url)) {
                     Uri currentUri;
-                    if(Uri.IsWellFormedUriString(url, UriKind.Absolute)) {
-                        currentUri = new Uri(url, UriKind.Absolute);
-                    } else if(Uri.IsWellFormedUriString(url, UriKind.Relative)) {
-                        currentUri = new Uri(rootUri, url);
-                    } else {
-                        continue;
-                    }
-                    if(currentUri.Host.IndexOf(RootUrl.Host) != -1) {
-                        if(!_allFoundPages.Contains(currentUri)) {
-                            _allFoundPages.Add(currentUri);
-                            lock(_syncRootQueue) {
-                                _pages.Enqueue(currentUri);
-                            }
-                        }
-                    }
+                    if(TryParseUri(url, rootUri, out currentUri))
+                        AddUri(currentUri);
+                }
+                while(TryFindNextUrl(text, ref position, out url, '\'')) {
+                    Uri currentUri;
+                    if(TryParseUri(url, rootUri, out currentUri))
+                        AddUri(currentUri);
                 }
             });
         }
