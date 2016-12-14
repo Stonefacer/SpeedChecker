@@ -188,86 +188,87 @@ namespace Test_task.Custom.Workers {
         }
 
         private void DoWork() {
-            var dbMain = TestsContext.Instance();
-            var root = new Test() {
-                RootHost = RootUrl.Host,
-                TimeStart = DateTime.Now.Ticks
-            };
-            dbMain.Tests.Add(root);
-            while(_pages.Count != 0 && WorkInProgress && PagesChecked < 10000) {
-                Uri currentUri;
-                lock(_syncRootQueue) {
-                    currentUri = _pages.Dequeue();
-                }
-                List<float> results = new List<float>(RequestsPerPage);
-                long time = 0;
-                string content = "";
-                try {
-                    content = SendRequest(currentUri, false, out time);
-                } catch(WebException exception) {
-                    var response = exception.Response as HttpWebResponse;
-                    if(response != null) {
-                        OnPageStateChanged(new PageStateChangedEventArgs() {
-                            MinTime = 99999,
-                            AvgTime = 99999,
-                            MaxTime = 99999,
-                            CurrentUrl = currentUri.ToString(),
-                            Status = (int)response.StatusCode
-                        });
-                        root.PageInfos.Add(new Page() {
-                            AvgTime = 99999,
-                            MaxTime = 99999,
-                            MinTime = 99999,
-                            PageUrl = currentUri.ToString(),
-                            Result = root,
-                            Status = (int)response.StatusCode
-                        });
-                        dbMain.SaveChanges();
+            using(var dbMain = new TestsContext()) {
+                var root = new Test() {
+                    RootHost = RootUrl.Host,
+                    TimeStart = DateTime.Now.Ticks
+                };
+                dbMain.Tests.Add(root);
+                while(_pages.Count != 0 && WorkInProgress && PagesChecked < 10000) {
+                    Uri currentUri;
+                    lock(_syncRootQueue) {
+                        currentUri = _pages.Dequeue();
                     }
-                    OnPageAnalyzeCompleted();
-                    PagesChecked++;
-                    continue;
-                } catch(Exception) {
-                    continue;
-                }
-                if(string.IsNullOrEmpty(content))
-                    continue;
-                var urlsReader = ReadUrls(content, currentUri);
-                results.Add((float)time / TimeSpan.TicksPerMillisecond);
-                for(int i = 1; i < RequestsPerPage && WorkInProgress; i++) {
+                    List<float> results = new List<float>(RequestsPerPage);
+                    long time = 0;
+                    string content = "";
                     try {
                         content = SendRequest(currentUri, false, out time);
-                    } catch(WebException) { // for DOS filters
-                        for(int j=0;j<100 && WorkInProgress; j++) // in case client want to abort job but dont wanna wait 10 secs
-                            Thread.Sleep(100);
+                    } catch(WebException exception) {
+                        var response = exception.Response as HttpWebResponse;
+                        if(response != null) {
+                            OnPageStateChanged(new PageStateChangedEventArgs() {
+                                MinTime = 99999,
+                                AvgTime = 99999,
+                                MaxTime = 99999,
+                                CurrentUrl = currentUri.ToString(),
+                                Status = (int)response.StatusCode
+                            });
+                            root.PageInfos.Add(new Page() {
+                                AvgTime = 99999,
+                                MaxTime = 99999,
+                                MinTime = 99999,
+                                PageUrl = currentUri.ToString(),
+                                Result = root,
+                                Status = (int)response.StatusCode
+                            });
+                            dbMain.SaveChanges();
+                        }
+                        OnPageAnalyzeCompleted();
+                        PagesChecked++;
                         continue;
                     } catch(Exception) {
                         continue;
                     }
+                    if(string.IsNullOrEmpty(content))
+                        continue;
+                    var urlsReader = ReadUrls(content, currentUri);
                     results.Add((float)time / TimeSpan.TicksPerMillisecond);
-                    OnPageStateChanged(new PageStateChangedEventArgs() {
-                        MinTime = results.Min(),
+                    for(int i = 1; i < RequestsPerPage && WorkInProgress; i++) {
+                        try {
+                            content = SendRequest(currentUri, false, out time);
+                        } catch(WebException) { // for DOS filters
+                            for(int j = 0; j < 100 && WorkInProgress; j++) // in case client want to abort job but dont wanna wait 10 secs
+                                Thread.Sleep(100);
+                            continue;
+                        } catch(Exception) {
+                            continue;
+                        }
+                        results.Add((float)time / TimeSpan.TicksPerMillisecond);
+                        OnPageStateChanged(new PageStateChangedEventArgs() {
+                            MinTime = results.Min(),
+                            AvgTime = results.Average(),
+                            MaxTime = results.Max(),
+                            CurrentUrl = currentUri.ToString(),
+                            Status = 200
+                        });
+                    }
+                    OnPageAnalyzeCompleted();
+                    root.PageInfos.Add(new Page() {
                         AvgTime = results.Average(),
                         MaxTime = results.Max(),
-                        CurrentUrl = currentUri.ToString(),
+                        MinTime = results.Min(),
+                        PageUrl = currentUri.ToString(),
+                        Result = root,
                         Status = 200
                     });
+                    dbMain.SaveChanges();
+                    PagesChecked++;
+                    urlsReader.Wait();
                 }
-                OnPageAnalyzeCompleted();
-                root.PageInfos.Add(new Page() {
-                    AvgTime = results.Average(),
-                    MaxTime = results.Max(),
-                    MinTime = results.Min(),
-                    PageUrl = currentUri.ToString(),
-                    Result = root,
-                    Status = 200
-                });
+                root.TimeStop = DateTime.Now.Ticks;
                 dbMain.SaveChanges();
-                PagesChecked++;
-                urlsReader.Wait();
             }
-            root.TimeStop = DateTime.Now.Ticks;
-            dbMain.SaveChanges();
             OnWorkerStopped();
         }
 

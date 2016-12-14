@@ -12,18 +12,19 @@ using Test_task.Models;
 namespace Test_task.Controllers {
     public class HomeController : Controller {
         public ActionResult Index() {
-            var dbMain = TestsContext.Instance();
-            var res = dbMain.Tests.Where(x => x.PageInfos.Count(y => y.AvgTime < 99999.00) > 0)
-                .OrderByDescending(x => x.TimeStart)
-                .Take(100)
-                .Select(x => new TestResult() {
-                    Id = x.Id,
-                    Url = x.RootHost,
-                    PagesCount = x.PageInfos.Count,
-                    ErrorsCount = x.PageInfos.Where(y => y.Status != 200).Count(),
-                    AvgTime = x.PageInfos.Where(y => y.AvgTime < 99999.00).Average(y => y.AvgTime)
-                });
-            ViewBag.data = res.ToArray();
+            using(var dbMain = new TestsContext()) {
+                var res = dbMain.Tests.Where(x => x.PageInfos.Count(y => y.AvgTime < 99999.00) > 0)
+                    .OrderByDescending(x => x.TimeStart)
+                    .Take(100)
+                    .Select(x => new TestResult() {
+                        Id = x.Id,
+                        Url = x.RootHost,
+                        PagesCount = x.PageInfos.Count,
+                        ErrorsCount = x.PageInfos.Where(y => y.Status != 200).Count(),
+                        AvgTime = x.PageInfos.Where(y => y.AvgTime < 99999.00).Average(y => y.AvgTime)
+                    });
+                ViewBag.data = res.ToArray();
+            }
             return View();
         }
 
@@ -56,33 +57,35 @@ namespace Test_task.Controllers {
                 ViewBag.ShowResults = false;
                 return View();
             }
-            var dbMain = TestsContext.Instance();
-            ViewBag.Message = "Search for test results";
-            ViewBag.ShowResults = true;
-            var res = dbMain.Tests.Where(x => x.RootHost.IndexOf(model.Hostname) != -1)
-                .OrderByDescending(x => x.TimeStart)
-                .Select(x => new TestResult() {
-                    Id = x.Id,
-                    Url = x.RootHost,
-                    PagesCount = x.PageInfos.Count,
-                    ErrorsCount = x.PageInfos.Where(y => y.Status != 200).Count(),
-                    AvgTime = x.PageInfos.Where(y => y.AvgTime < 99999.00).DefaultIfEmpty().Average(y => y.AvgTime)
-                });
-            ViewBag.data = res.ToArray();
+            using(var dbMain = new TestsContext()) {
+                ViewBag.Message = "Search for test results";
+                ViewBag.ShowResults = true;
+                var res = dbMain.Tests.Where(x => x.RootHost.IndexOf(model.Hostname) != -1)
+                    .OrderByDescending(x => x.TimeStart)
+                    .Select(x => new TestResult() {
+                        Id = x.Id,
+                        Url = x.RootHost,
+                        PagesCount = x.PageInfos.Count,
+                        ErrorsCount = x.PageInfos.Where(y => y.Status != 200).Count(),
+                        AvgTime = x.PageInfos.Where(y => y.AvgTime < 99999.00).DefaultIfEmpty().Average(y => y.AvgTime)
+                    });
+                ViewBag.data = res.ToArray();
+            }
             return View();
         }
 
         [HttpGet]
         public ActionResult ShowPages(int Id) {
             ViewBag.TestId = Id;
-            var dbMain = TestsContext.Instance();
-            var test = dbMain.Tests.Where(x => x.Id == Id).FirstOrDefault();
-            if(test == null) {
-                ViewBag.data = null;
-                return View();
+            using(var dbMain = new TestsContext()) {
+                var test = dbMain.Tests.Where(x => x.Id == Id).FirstOrDefault();
+                if(test == null) {
+                    ViewBag.data = null;
+                    return View();
+                }
+                var res = dbMain.Pages.Where(x => x.Result.Id == Id).OrderByDescending(x => x.AvgTime).Take(1000);
+                ViewBag.data = res.ToArray();
             }
-            var res = dbMain.Pages.Where(x => x.Result.Id == Id).OrderByDescending(x=>x.AvgTime).Take(1000);
-            ViewBag.data = res.ToArray();
             return View();
         }
 
