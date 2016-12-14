@@ -65,7 +65,7 @@
         var tableData = [];
         var chartObject;
         var chartData;
-        var chartMaxPointsCount = 1000;
+        var maxElementsCount = 100;
 
         function hideError() {
             $("#errorMessageContainer").addClass("hidden");
@@ -181,7 +181,7 @@
             table = $("#resultsTable");
             updateChart();
             table.empty();
-            if (tableData.length >= 1000) {
+            if (tableData.length >= maxElementsCount) {
                 buf = tableData[tableData.length - 1];
                 if (buf.avgTime <= lastPageInfo.avgTime)
                     tableData[tableData.length - 1] = lastPageInfo;
@@ -229,7 +229,7 @@
             if (lastPageInfo.statusCode != 200) {
                 return;
             }
-            if (chartData.datasets[0].data.length >= chartMaxPointsCount) {
+            if (chartData.datasets[0].data.length >= maxElementsCount) {
                 chartData.datasets[0].data.splice(0, 1);
             } else {
                 chartData.labels.push(lastPageInfo.currentUrl);
