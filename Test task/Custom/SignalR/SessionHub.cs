@@ -66,7 +66,7 @@ namespace Test_task.Custom.SignalR {
             return base.OnReconnected();
         }
 
-        public void Start(string url) {
+        public void Start(string url, bool force) {
             var User = GetUser(this);
             if(User == null)
                 Clients.Caller.sendErrorMessage("Something went wrong. Please update page and try again.");
@@ -77,7 +77,7 @@ namespace Test_task.Custom.SignalR {
                 if(!url.StartsWith("http://") && !url.StartsWith("https://"))
                     url = "http://" + url;
                 lock(User.syncRoot) {
-                    var worker = Worker.Instance(url, User.UserKey, out result);
+                    var worker = Worker.Instance(url, User.UserKey, force, out result);
                     if(worker == null) {
                         Clients.Caller.sendErrorMessage(result);
                     } else {

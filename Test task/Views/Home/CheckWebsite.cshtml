@@ -22,7 +22,12 @@
                         <input id="url" type="text" style="width: 100%; max-width: 100%" class="form-control" placeholder="Tape your url here...">
                     </div>
                     <div class="col-lg-4 col-md-5 col-sm-6 col-xs-7">
-                        <button id="start" class="btn btn-default" type="button" disabled>Start</button>
+                        <div id="scanButtons" class="input-group" disabled>
+                            <div class="input-group-btn">
+                                <button id="scan" class="btn btn-default" type="button">Scan</button>
+                                <button id="forceScan" class="btn btn-default" type="button">Force scan</button>
+                            </div>
+                        </div>
                         &nbsp;&nbsp;&nbsp;
                         <span id="currentState" class="label label-default">Loading...</span>
                     </div>
@@ -57,6 +62,7 @@
     <script src="~/Scripts/jquery.signalR-2.2.1.min.js"></script>
     <script src="~/signalr/hubs"></script>
     <script src="~/Scripts/Chart.min.js"></script>
+    <script src="~/Scripts/common.js"></script>
     <script>
 
         var lastIntervalId = undefined;
@@ -65,7 +71,11 @@
         var tableData = [];
         var chartObject;
         var chartData;
-        var maxElementsCount = 100;
+        var maxElementsCount = 200;
+
+        function changeSettingsForIE() {
+            maxElementsCount = 100;
+        }
 
         function hideError() {
             $("#errorMessageContainer").addClass("hidden");
@@ -87,12 +97,12 @@
                 lastIntervalId = setTimeout(hideError, 10000);
         }
 
-        function btnStartClick() {
+        function btnStartClick(force) {
             setState("Starting...");
             $("#testMessages").empty();
             $("#panelTableResults").removeClass("hidden");
             tableData = [];
-            session.server.start($("#url").val())
+            session.server.start($("#url").val(), force === true)
                 .fail(function () {
                     showError("Something went wrong. Please update page and try again.")
                 });
@@ -123,7 +133,7 @@
                 .done(function () {
                     //$('#start').click(btnStartClick);
                     $("#mainForm").prop("disabled", false);
-                    $("#start").prop("disabled", false);
+                    $("#scanButtons").prop("disabled", false);
                     hideError();
                 })
                 .fail(function () {
@@ -134,20 +144,26 @@
         function setGuiState(stateId, data) {
             if (stateId == 0) { // ready
                 $("#url").prop("disabled", false);
-                btn = $("#start");
-                btn.html("Start");
+                btn = $("#scan");
+                btn.html("Scan");
                 btn.unbind("click");
+                $("#forceScan").unbind("click");
+                $("#forceScan").click(function () { btnStartClick(true); });
                 btn.click(btnStartClick);
+                $("#forceScan").removeClass("hidden");
                 setState("Ready!");
             } else if (stateId == 1) { // job in progress
                 $("#url").prop("disabled", true);
                 $("#url").val(data.url);
-                btn = $("#start");
+                btn = $("#scan");
                 btn.html("Cancel");
                 btn.unbind("click");
+                $("#forceScan").unbind("click");
+                $("#forceScan").click(btnCancelClick);
                 btn.click(btnCancelClick);
                 setState("Loading started job...");
                 $("#panelTableResults").removeClass("hidden");
+                $("#forceScan").addClass("hidden");
                 initChart();
             }
         }
@@ -181,15 +197,31 @@
             table = $("#resultsTable");
             updateChart();
             table.empty();
-            if (tableData.length >= maxElementsCount) {
-                buf = tableData[tableData.length - 1];
-                if (buf.avgTime <= lastPageInfo.avgTime)
-                    tableData[tableData.length - 1] = lastPageInfo;
-            } else {
-                tableData.push(lastPageInfo);
+            index = 0;
+            for (; index < tableData.length; index++) {
+                if (tableData[index].avgTime <= lastPageInfo.avgTime) {
+                    break;
+                }
             }
+            if (index == tableData.length) {
+                if (index == maxElementsCount) {
+                    index = index - 1;
+                } else {
+                    tableData.push(lastPageInfo);
+                }
+            } else {
+                tableData[index] = lastPageInfo;
+            }
+            //if (tableData.length >= maxElementsCount) {
+            //    buf = tableData[tableData.length - 1];
+            //    if (buf.avgTime <= lastPageInfo.avgTime) {
+            //        tableData[tableData.length - 1] = lastPageInfo;
+            //    }
+            //} else {
+            //    tableData.push(lastPageInfo);
+            //}
             // insert sort migth be useful here but whatever
-            tableData.sort(function (a, b) { return b.avgTime - a.avgTime; });
+            //tableData.sort(function (a, b) { return b.avgTime - a.avgTime; });
             for (i = 0; i < tableData.length; i++) {
                 table.append(getTableRow(tableData[i]));
             }
@@ -200,9 +232,10 @@
                 clearChart();
                 return;
             }
-            width = $("#panelChartResults").width() - 1;
-            if (width > 400)
-                width = 400;
+            //width = $("#panelChartResults").width() - 1;
+            //if (width > 400)
+            //    width = 400;
+            //$("#panelChartResults").width(width);
             chartData = {
                 labels: [],
                 datasets: [
@@ -253,6 +286,9 @@
         }
 
         $(function () {
+            if (getIEVersion() != 0) {
+                changeSettingsForIE();
+            }
             $.connection.hub.qs = { "UserKey": $.cookie("UserKey") };
             $.connection.hub.stateChanged(connectionStateChanged);
             session = $.connection.sessionHub;

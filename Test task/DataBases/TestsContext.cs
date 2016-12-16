@@ -9,8 +9,6 @@ using WebSitePerfomanceTool.Entities;
 namespace Test_task.DataBases {
     public class TestsContext:DbContext {
 
-        private static TestsContext _lastInstance;
-
         public DbSet<Test> Tests { get; set; }
         public DbSet<Page> Pages { get; set; }
 

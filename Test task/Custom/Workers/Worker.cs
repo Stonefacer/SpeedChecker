@@ -23,17 +23,17 @@ namespace Test_task.Custom.Workers {
 
         public static int Count { get; private set; }
 
-        public static Worker Instance(string url, string OwnerKey, out string status) {
+        public static Worker Instance(string url, string OwnerKey, bool force, out string status) {
             Uri currentUri;
             if(!Uri.TryCreate(url, UriKind.Absolute, out currentUri)) {
                 status = "Incorrect url";
                 return null;
             }
             status = "";
-            if(_workers.ContainsKey(currentUri.Host)) {
+            if(_workers.ContainsKey(currentUri.Host) && _workers[currentUri.Host].Force == force) {
                 return _workers[currentUri.Host];
             } else {
-                var worker = new Worker(currentUri, OwnerKey);
+                var worker = new Worker(currentUri, OwnerKey, force);
                 _workers[currentUri.Host] = worker;
                 return worker;
             }
@@ -53,10 +53,11 @@ namespace Test_task.Custom.Workers {
         public bool WorkInProgress { get; private set; } = true;
         public string OwnerKey { get; private set; }
         public int PagesChecked { get; private set; }
+        public bool Force { get; private set; }
 
         public int RequestsPerPage { get; set; } = 5;
 
-        private Worker(Uri url, string ownerKey) {
+        private Worker(Uri url, string ownerKey, bool force = false) {
             var host = url.Host;
             if(host.StartsWith("www."))
                 host = host.Substring(4);
@@ -64,6 +65,7 @@ namespace Test_task.Custom.Workers {
             OwnerKey = ownerKey;
             _pages.Enqueue(RootUrl);
             _allFoundPages.Add(RootUrl);
+            Force = force;
         }
 
         public void Start() {
@@ -114,27 +116,36 @@ namespace Test_task.Custom.Workers {
         }
 
         private bool TryFindNextUrl(string text, ref int position, out string result, char quote = '"') {
-            int idStart = text.IndexOf("href=" + quote, position);
             result = "";
+            if(position >= text.Length)
+                return false;
+            string startKey;
+            if(Force) {
+                startKey = quote.ToString();
+            } else {
+                startKey = "href=" + quote;
+            }
+            int idStart = text.IndexOf(startKey, position);
             if(idStart == -1)
                 return false;
-            idStart += 6;
-            int idFinish = idFinish = text.IndexOf(quote, idStart);
+            idStart += Force?1:6;
+            int idFinish = text.IndexOf(quote, idStart);
             if(idFinish == -1)
                 return false;
             result = text.Substring(idStart, idFinish - idStart);
-            position = idFinish;
+            position = idFinish + 1;
             return true;
         }
 
         private bool TryParseUri(string url, Uri rootUri, out Uri result) {
             if(Uri.IsWellFormedUriString(url, UriKind.Absolute)) {
-                result = new Uri(url, UriKind.Absolute);
-                return true;
+                return Uri.TryCreate(url, UriKind.Absolute, out result);
+            }
+            if(Force && Uri.IsWellFormedUriString("http://" + url, UriKind.Absolute)) {
+                return Uri.TryCreate("http://" + url, UriKind.Absolute, out result);
             }
             if(Uri.IsWellFormedUriString(url, UriKind.Relative)) {
-                result = new Uri(rootUri, url);
-                return true;
+                return Uri.TryCreate(rootUri, url, out result);
             }
             result = null;
             return false;
@@ -160,6 +171,7 @@ namespace Test_task.Custom.Workers {
                     if(TryParseUri(url, rootUri, out currentUri))
                         AddUri(currentUri);
                 }
+                position = 0;
                 while(TryFindNextUrl(text, ref position, out url, '\'')) {
                     Uri currentUri;
                     if(TryParseUri(url, rootUri, out currentUri))
@@ -170,12 +182,15 @@ namespace Test_task.Custom.Workers {
 
         private string SendRequest(Uri target, bool ignoreContent, out long time) {
             HttpWebRequest request = HttpWebRequest.Create(target) as HttpWebRequest;
-            request.Accept = "text/html";
+            if(Force)
+                request.Accept = "*/*";
+            else
+                request.Accept = "text/html";
             time = DateTime.Now.Ticks;
             string content = null;
             using(var responce = request.GetResponse()) {
                 time = DateTime.Now.Ticks - time;
-                if(responce.ContentType.IndexOf("text/html") == -1) {
+                if(!Force && responce.ContentType.IndexOf("text/html") == -1) {
                     return "";
                 }
                 if(!ignoreContent) {
