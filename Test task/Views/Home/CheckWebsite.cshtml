@@ -12,7 +12,7 @@
                 <h4 class="modal-title">Warning!</h4>
             </div>
             <div class="modal-body">
-                <p>Force scan use different urls filter. Failures are unavoidable. Are you sure you want use this feature?</p>
+                <p>Force scan use different url filters which are NOT support SPA websites. If you're trying to test SPA-website then failures are unavoidable. Are you sure you want use this feature?</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-danger" data-dismiss="modal">Yes</button>
@@ -97,7 +97,7 @@
         var maxElementsCount = 200;
 
         function changeSettingsForIE() {
-            maxElementsCount = 100;
+            maxElementsCount = 50;
         }
 
         function hideError() {
