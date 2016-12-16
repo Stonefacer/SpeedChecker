@@ -2,6 +2,28 @@
     ViewBag.Title = "Check website";
 }
 
+<!-- Modal -->
+<div id="forceScanWarning" class="modal fade" role="dialog">
+    <div class="modal-dialog">
+        <!-- Modal content-->
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">Warning!</h4>
+            </div>
+            <div class="modal-body">
+                <p>Force scan use different urls filter. Failures are unavoidable. Are you sure you want use this feature?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger" data-dismiss="modal">Yes</button>
+                <button type="button" class="btn btn-default" data-dismiss="modal">No</button>
+            </div>
+        </div>
+
+    </div>
+</div>
+<!-- /Modal -->
+
 <div class="container-fluid">
     <h1>Check website performance</h1>
     <div id="errorMessageContainer" class="alert alert-warning alert-dismissible hidden" role="alert">
@@ -63,6 +85,7 @@
     <script src="~/signalr/hubs"></script>
     <script src="~/Scripts/Chart.min.js"></script>
     <script src="~/Scripts/common.js"></script>
+    <script src="~/Scripts/bootstrap.min.js"></script>
     <script>
 
         var lastIntervalId = undefined;
@@ -97,11 +120,15 @@
                 lastIntervalId = setTimeout(hideError, 10000);
         }
 
-        function btnStartClick(force) {
+        function btnStartClick(force, hideModal) {
+            if (force === true && hideModal !== true) {
+                $("#forceScanWarning").modal("toggle");
+                return;
+            }
             setState("Starting...");
             $("#testMessages").empty();
-            $("#panelTableResults").removeClass("hidden");
             tableData = [];
+            initChart();
             session.server.start($("#url").val(), force === true)
                 .fail(function () {
                     showError("Something went wrong. Please update page and try again.")
@@ -254,7 +281,6 @@
         function clearChart() {
             chartData.datasets[0].data = [];
             chartData.labels = [];
-            chartObject.update(chartData);
         }
 
         function updateChart() {
@@ -309,6 +335,14 @@
                 $.connection.hub.stop();
                 $.connection.hub.start();
             };
+            $("#forceScanWarning").on("click", ".btn", function () {
+                $(this).addClass("modal-result");
+            }).on("hidden.bs.modal", function () {
+                var result = $(this).find('.modal-result').filter('.btn-danger').length > 0;
+                if (result) {
+                    btnStartClick(true, true);
+                }
+            });
             connect();
         });
     </script>
