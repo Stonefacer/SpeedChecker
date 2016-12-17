@@ -18,28 +18,40 @@ namespace Test_task.Custom.SignalR {
         public readonly Object syncRoot = new Object();
         public string UserKey { get; private set; }
 
-        public string ConnectionId { get; private set; }
+        public LinkedList<string> ConnectionIds { get; private set; }
+
+        public int MaxConnectionPerUser { get; set; } = 10;
 
         public User(string connectionId, string userKey) {
             _hub = GlobalHost.ConnectionManager.GetHubContext<SessionHub>();
-            ConnectionId = connectionId;
+            ConnectionIds = new LinkedList<string>();
+            ConnectionIds.AddLast(connectionId);
             UserKey = userKey;
         }
 
         public void AddTestMessage(string message) {
-            _hub.Clients.Client(ConnectionId).addTestMessage(message);
+            foreach(var cid in ConnectionIds) {
+                _hub.Clients.Client(cid).addTestMessage(message);
+            }
         }
 
         public void SendErrorMessage(string message) {
-            _hub.Clients.Client(ConnectionId).sendErrorMessage(message);
+            foreach(var cid in ConnectionIds) {
+                _hub.Clients.Client(cid).sendErrorMessage(message);
+            }
         }
 
         // 0 - ready for action
         // 1 - job in progress
-        public void SetGuiState(int state) {
+        public void SetGuiState(int state, string connectionId = "") {
             dynamic data = new ExpandoObject();
             data.url = _worker?.RootUrl.ToString() ?? "";
-            _hub.Clients.Client(ConnectionId).setGuiState(state, JsonConvert.SerializeObject(data));
+            if(connectionId == "") {
+                foreach(var cid in ConnectionIds)
+                    _hub.Clients.Client(cid).setGuiState(state, JsonConvert.SerializeObject(data));
+            } else {
+                _hub.Clients.Client(connectionId).setGuiState(state, JsonConvert.SerializeObject(data));
+            }
         }
 
         public bool HasWorker() {
@@ -55,22 +67,27 @@ namespace Test_task.Custom.SignalR {
             _worker.NewTestMessage += _worker_NewTestMessage;
             _worker.PageStateChanged += _worker_PageStateChanged;
             _worker.PageAnalyzeCompleted += _worker_PageAnalyzeCompleted;
+            SetGuiState(1);
             if(_worker.CheckOwner(UserKey))
                 _worker.Start();
         }
 
         private void _worker_PageAnalyzeCompleted(object sender, CustomEventArgs.PageAnalyzeCompletedEventArgs e) {
-            _hub.Clients.Client(ConnectionId).pageAnalyzeCompleted();
+            foreach(var cid in ConnectionIds) {
+                _hub.Clients.Client(cid).pageAnalyzeCompleted();
+            }
         }
 
         private void _worker_PageStateChanged(object sender, CustomEventArgs.PageStateChangedEventArgs e) {
-            _hub.Clients.Client(ConnectionId).updateCurrentState(JsonConvert.SerializeObject(new {
-                minTime = e.MinTime.ToString("F02"),
-                avgTime = e.AvgTime.ToString("F02"),
-                maxTime = e.MaxTime.ToString("F02"),
-                statusCode = e.Status,
-                currentUrl = e.CurrentUrl
-            }));
+            foreach(var cid in ConnectionIds) {
+                _hub.Clients.Client(cid).updateCurrentState(JsonConvert.SerializeObject(new {
+                    minTime = e.MinTime.ToString("F02"),
+                    avgTime = e.AvgTime.ToString("F02"),
+                    maxTime = e.MaxTime.ToString("F02"),
+                    statusCode = e.Status,
+                    currentUrl = e.CurrentUrl
+                }));
+            }
         }
 
         public void CloseSession() {
@@ -86,12 +103,20 @@ namespace Test_task.Custom.SignalR {
             }
         }
 
-        public void ChangeConnectionId(string newConnectionId) {
-            if(ConnectionId == newConnectionId)
-                return;
-            ConnectionId = newConnectionId;
+        public void AddConnectionId(string newConnectionId) {
+            if(ConnectionIds.Count >= MaxConnectionPerUser) {
+                //SendErrorMessage("Too many connections to the website. Please make sure you are not using same tool in multiply tabs.");
+                //return;
+                ConnectionIds.RemoveFirst();
+            }
+            if(!ConnectionIds.Contains(newConnectionId)) // only for low number of connection
+                ConnectionIds.AddLast(newConnectionId);
             //_hub = GlobalHost.ConnectionManager.GetHubContext<SessionHub>();
-            SetGuiState(_worker != null ? 1 : 0);
+            SetGuiState(_worker != null ? 1 : 0, newConnectionId);
+        }
+
+        public void RemoveConnectionId(string connectionId) {
+            ConnectionIds.Remove(connectionId);
         }
 
         private void _worker_NewTestMessage(object sender, string e) {
@@ -99,9 +124,12 @@ namespace Test_task.Custom.SignalR {
         }
 
         private void _worker_Stopped(object sender, EventArgs e) {
-            SetGuiState(0);
             CloseSession();
             _worker = null;
+            SetGuiState(0);
+            if(ConnectionIds.Count == 0) {
+                SessionHub.RemoveUser(UserKey);
+            }
         }
 
         private void _worker_WorkerStarted(object sender, EventArgs e) {

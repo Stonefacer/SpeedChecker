@@ -47,7 +47,7 @@
                         <div id="scanButtons" class="input-group" disabled>
                             <div class="input-group-btn">
                                 <button id="scan" class="btn btn-default" type="button">Scan</button>
-                                <button id="forceScan" class="btn btn-default" type="button">Force scan</button>
+                                <button id="forceScan" class="btn btn-default hidden" type="button">Force scan</button>
                             </div>
                         </div>
                         &nbsp;&nbsp;&nbsp;
@@ -95,6 +95,7 @@
         var chartObject;
         var chartData;
         var maxElementsCount = 200;
+        var supportForceScan = false;
 
         function changeSettingsForIE() {
             maxElementsCount = 50;
@@ -116,7 +117,7 @@
             if (typeof LastIntervalId !== 'undefined') {
                 clearInterval(lastIntervalId);
             }
-            if(permanent !== true)
+            if (permanent !== true)
                 lastIntervalId = setTimeout(hideError, 10000);
         }
 
@@ -127,8 +128,6 @@
             }
             setState("Starting...");
             $("#testMessages").empty();
-            tableData = [];
-            initChart();
             session.server.start($("#url").val(), force === true)
                 .fail(function () {
                     showError("Something went wrong. Please update page and try again.")
@@ -174,10 +173,12 @@
                 btn = $("#scan");
                 btn.html("Scan");
                 btn.unbind("click");
-                $("#forceScan").unbind("click");
-                $("#forceScan").click(function () { btnStartClick(true); });
                 btn.click(btnStartClick);
-                $("#forceScan").removeClass("hidden");
+                if (supportForceScan) {
+                    $("#forceScan").unbind("click");
+                    $("#forceScan").click(function () { btnStartClick(true); });
+                    $("#forceScan").removeClass("hidden");
+                }
                 setState("Ready!");
             } else if (stateId == 1) { // job in progress
                 $("#url").prop("disabled", true);
@@ -185,12 +186,15 @@
                 btn = $("#scan");
                 btn.html("Cancel");
                 btn.unbind("click");
-                $("#forceScan").unbind("click");
-                $("#forceScan").click(btnCancelClick);
+                if (supportForceScan) {
+                    $("#forceScan").unbind("click");
+                    $("#forceScan").click(btnCancelClick);
+                    $("#forceScan").addClass("hidden");
+                }
                 btn.click(btnCancelClick);
                 setState("Loading started job...");
                 $("#panelTableResults").removeClass("hidden");
-                $("#forceScan").addClass("hidden");
+                tableData = [];
                 initChart();
             }
         }
@@ -224,31 +228,16 @@
             table = $("#resultsTable");
             updateChart();
             table.empty();
-            index = 0;
-            for (; index < tableData.length; index++) {
-                if (tableData[index].avgTime <= lastPageInfo.avgTime) {
-                    break;
-                }
-            }
-            if (index == tableData.length) {
-                if (index == maxElementsCount) {
-                    index = index - 1;
-                } else {
-                    tableData.push(lastPageInfo);
+            if (tableData.length >= maxElementsCount) {
+                buf = tableData[tableData.length - 1];
+                if (buf.avgTime <= lastPageInfo.avgTime) {
+                    tableData[tableData.length - 1] = lastPageInfo;
                 }
             } else {
-                tableData[index] = lastPageInfo;
+                tableData.push(lastPageInfo);
             }
-            //if (tableData.length >= maxElementsCount) {
-            //    buf = tableData[tableData.length - 1];
-            //    if (buf.avgTime <= lastPageInfo.avgTime) {
-            //        tableData[tableData.length - 1] = lastPageInfo;
-            //    }
-            //} else {
-            //    tableData.push(lastPageInfo);
-            //}
-            // insert sort migth be useful here but whatever
-            //tableData.sort(function (a, b) { return b.avgTime - a.avgTime; });
+            //insert sort migth be useful here but whatever
+            tableData.sort(function (a, b) { return b.avgTime - a.avgTime; });
             for (i = 0; i < tableData.length; i++) {
                 table.append(getTableRow(tableData[i]));
             }

@@ -17,6 +17,11 @@ namespace Test_task.Custom.SignalR {
         private static ConcurrentDictionary<string, User> _clients = new ConcurrentDictionary<string, User>();
         private static string PrivateSecret = "Пенчекряк";
 
+        public static void RemoveUser(string userKey) {
+            User res;
+            _clients.TryRemove(userKey, out res);
+        }
+
         private static string CreateNewUserKey(string clientId) {
             return string.Join("", MD5.Create()
                 .ComputeHash(Encoding.UTF8.GetBytes(PrivateSecret + DateTime.Now.Ticks.ToString() + clientId))
@@ -39,7 +44,7 @@ namespace Test_task.Custom.SignalR {
                 Clients.Caller.setUserKey(key);
             } else {
                 if(_clients.ContainsKey(key)) {
-                    _clients[key].ChangeConnectionId(Context.ConnectionId);
+                    _clients[key].AddConnectionId(Context.ConnectionId);
                 } else {
                     _clients[key] = new User(Context.ConnectionId, key);
                     Clients.Caller.setUserKey(key);
@@ -49,14 +54,14 @@ namespace Test_task.Custom.SignalR {
         }
 
         public override Task OnDisconnected(bool stopCalled) {
-            //GetUser(this)?.CloseSession();
+            GetUser(this)?.RemoveConnectionId(Context.ConnectionId);
             return base.OnDisconnected(stopCalled);
         }
 
         public override Task OnReconnected() {
             var user = GetUser(this);
             if(user != null) {
-                user.ChangeConnectionId(Context.ConnectionId);
+                user.AddConnectionId(Context.ConnectionId);
             } else {
                 var key = CreateNewUserKey(Context.ConnectionId);
                 _clients[key] = new User(Context.ConnectionId, key);

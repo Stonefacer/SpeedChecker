@@ -8,13 +8,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Security.Cryptography;
 using System.IO;
+using System.IO.Compression;
+using System.Text;
 
 using WebSitePerfomanceTool.Entities;
 
 using Test_task.Custom.SignalR;
 using Test_task.DataBases;
 using Test_task.Custom.CustomEventArgs;
-
+using System.Xml;
 
 namespace Test_task.Custom.Workers {
     public class Worker {
@@ -29,11 +31,24 @@ namespace Test_task.Custom.Workers {
                 status = "Incorrect url";
                 return null;
             }
+            try {
+                if(Dns.GetHostAddresses(currentUri.Host).Length == 0) {
+                    status = "Hostname cannot be resolved";
+                    return null;
+                }
+            } catch(Exception) {
+                status = "Hostname cannot be resolved";
+                return null;
+            }
             status = "";
-            if(_workers.ContainsKey(currentUri.Host) && _workers[currentUri.Host].Force == force) {
+            var host = currentUri.Host;
+            if(host.StartsWith("www."))
+                host = host.Substring(4);
+            var rootUrl = new Uri(currentUri.Scheme + "://" + host + currentUri.PathAndQuery);
+            if(_workers.ContainsKey(rootUrl.Host) && _workers[currentUri.Host].Force == force) {
                 return _workers[currentUri.Host];
             } else {
-                var worker = new Worker(currentUri, OwnerKey, force);
+                var worker = new Worker(rootUrl, OwnerKey, force);
                 _workers[currentUri.Host] = worker;
                 return worker;
             }
@@ -54,16 +69,14 @@ namespace Test_task.Custom.Workers {
         public string OwnerKey { get; private set; }
         public int PagesChecked { get; private set; }
         public bool Force { get; private set; }
+        public bool UsedSiteMap { get; private set; } = false;
 
         public int RequestsPerPage { get; set; } = 5;
+        public int MaxPagesCount { get; set; } = 10000;
 
         private Worker(Uri url, string ownerKey, bool force = false) {
-            var host = url.Host;
-            if(host.StartsWith("www."))
-                host = host.Substring(4);
-            RootUrl = new Uri(url.Scheme + "://" + host + url.PathAndQuery);
+            RootUrl = url;
             OwnerKey = ownerKey;
-            _pages.Enqueue(RootUrl);
             _allFoundPages.Add(RootUrl);
             Force = force;
         }
@@ -128,7 +141,7 @@ namespace Test_task.Custom.Workers {
             int idStart = text.IndexOf(startKey, position);
             if(idStart == -1)
                 return false;
-            idStart += Force?1:6;
+            idStart += Force ? 1 : 6;
             int idFinish = text.IndexOf(quote, idStart);
             if(idFinish == -1)
                 return false;
@@ -182,15 +195,15 @@ namespace Test_task.Custom.Workers {
 
         private string SendRequest(Uri target, bool ignoreContent, out long time) {
             HttpWebRequest request = HttpWebRequest.Create(target) as HttpWebRequest;
-            if(Force)
+            if(Force || UsedSiteMap)
                 request.Accept = "*/*";
             else
-                request.Accept = "text/html";
+                request.Accept = "text/*; application/*";
             time = DateTime.Now.Ticks;
             string content = null;
             using(var responce = request.GetResponse()) {
                 time = DateTime.Now.Ticks - time;
-                if(!Force && responce.ContentType.IndexOf("text/html") == -1) {
+                if(!Force && !UsedSiteMap && responce.ContentType.IndexOf("text/") == -1 && responce.ContentType.IndexOf("application/") == -1) {
                     return "";
                 }
                 if(!ignoreContent) {
@@ -202,6 +215,99 @@ namespace Test_task.Custom.Workers {
             return content;
         }
 
+        private bool TryDownloadASCIIFile(string url, out string result) {
+            var request = HttpWebRequest.CreateHttp(url);
+            try {
+                using(var response = request.GetResponse()) {
+                    using(var resStream = response.GetResponseStream()) {
+                        if(url.EndsWith(".gz")) {
+                            using(var gz = new GZipStream(resStream, CompressionMode.Decompress)) {
+                                using(var mem = new MemoryStream()) {
+                                    gz.CopyTo(mem);
+                                    mem.Seek(0, SeekOrigin.Begin);
+                                    using(var sr = new StreamReader(mem, Encoding.ASCII)) {
+                                        result = sr.ReadToEnd();
+                                        return true;
+                                    }
+                                }
+                            }
+                        } else {
+                            using(var sr = new StreamReader(resStream, Encoding.ASCII)) {
+                                result = sr.ReadToEnd();
+                                return true;
+                            }
+                        }
+                    }
+                }
+            } catch(WebException) {
+                result = "";
+                return false;
+            }
+        }
+
+        private bool ReadSitemap(Uri root, string xml, List<Uri> sitemapUrls) {
+            try {
+                XmlDocument xmlDoc = new XmlDocument();
+                xmlDoc.LoadXml(xml);
+                var nodesSitemap = xmlDoc.GetElementsByTagName("sitemap");
+                foreach(XmlElement el in nodesSitemap) {
+                    var loc = el.GetElementsByTagName("loc").OfType<XmlElement>().FirstOrDefault();
+                    if(loc == null)
+                        continue;
+                    Uri currentUri;
+                    if(TryParseUri(loc.InnerText, root, out currentUri)) {
+                        sitemapUrls.Add(currentUri);
+                    }
+                }
+                var nodes = xmlDoc.GetElementsByTagName("url");
+                foreach(XmlElement el in nodes) {
+                    var loc = el.GetElementsByTagName("loc").OfType<XmlElement>().FirstOrDefault();
+                    if(loc == null)
+                        continue;
+                    Uri currentUri;
+                    if(TryParseUri(loc.InnerText, root, out currentUri)) {
+                        AddUri(currentUri);
+                    }
+                }
+                return _pages.Count != 0;
+            } catch(Exception) {
+                return false;
+            }
+        }
+
+        private void DownloadSiteMap() {
+            var rootUrl = new Uri("http://" + RootUrl.Host);
+            string fileBuffer = "";
+            var sitemapUrls = new List<Uri>();
+            if(TryDownloadASCIIFile(rootUrl + "/robots.txt", out fileBuffer)) {
+                var key = "Sitemap:";
+                var id = fileBuffer.IndexOf(key);
+                while(id != -1) {
+                    id += key.Length;
+                    var idEnd = fileBuffer.IndexOf('\n', id);
+                    Uri sitemapUrl = null;
+                    if(idEnd == -1) {
+                        if(TryParseUri(fileBuffer.Substring(id).Trim(' ', '\t', '\r', '\n'), RootUrl, out sitemapUrl))
+                            sitemapUrls.Add(sitemapUrl);
+                        break; // end of file
+                    } else {
+                        if(TryParseUri(fileBuffer.Substring(id, idEnd - id).Trim(' ', '\t', '\r', '\n'), RootUrl, out sitemapUrl))
+                            sitemapUrls.Add(sitemapUrl);
+                        id = fileBuffer.IndexOf(key, idEnd);
+                    }
+                }
+            }
+            if(sitemapUrls.Count == 0) {
+                sitemapUrls.Add(new Uri(rootUrl, "/sitemap.xml"));
+            }
+            for(int i=0;i<sitemapUrls.Count && _pages.Count < MaxPagesCount; i++) {
+                if(TryDownloadASCIIFile(sitemapUrls[i].ToString(), out fileBuffer)) {
+                    if(ReadSitemap(rootUrl, fileBuffer, sitemapUrls) && !UsedSiteMap)
+                        UsedSiteMap = true;
+                }
+            }
+        }
+
         private void DoWork() {
             using(var dbMain = new TestsContext()) {
                 var root = new Test() {
@@ -209,7 +315,11 @@ namespace Test_task.Custom.Workers {
                     TimeStart = DateTime.Now.Ticks
                 };
                 dbMain.Tests.Add(root);
-                while(_pages.Count != 0 && WorkInProgress && PagesChecked < 10000) {
+                if(!Force)
+                    DownloadSiteMap();
+                if(!UsedSiteMap)
+                    _pages.Enqueue(RootUrl);
+                while(_pages.Count != 0 && WorkInProgress && PagesChecked < MaxPagesCount) {
                     Uri currentUri;
                     lock(_syncRootQueue) {
                         currentUri = _pages.Dequeue();
@@ -241,15 +351,21 @@ namespace Test_task.Custom.Workers {
                         }
                         OnPageAnalyzeCompleted();
                         PagesChecked++;
+                        if(!Force)
+                            Thread.Sleep(500);
                         continue;
                     } catch(Exception) {
                         continue;
                     }
                     if(string.IsNullOrEmpty(content))
                         continue;
-                    var urlsReader = ReadUrls(content, currentUri);
+                    Task urlsReader = null;
+                    if(!UsedSiteMap)
+                        urlsReader = ReadUrls(content, currentUri);
                     results.Add((float)time / TimeSpan.TicksPerMillisecond);
                     for(int i = 1; i < RequestsPerPage && WorkInProgress; i++) {
+                        if(!Force)
+                            Thread.Sleep(500);
                         try {
                             content = SendRequest(currentUri, false, out time);
                         } catch(WebException) { // for DOS filters
@@ -279,14 +395,14 @@ namespace Test_task.Custom.Workers {
                     });
                     dbMain.SaveChanges();
                     PagesChecked++;
-                    urlsReader.Wait();
+                    urlsReader?.Wait();
+                    if(!Force)
+                        Thread.Sleep(1000);
                 }
                 root.TimeStop = DateTime.Now.Ticks;
                 dbMain.SaveChanges();
             }
             OnWorkerStopped();
         }
-
-
     }
 }
