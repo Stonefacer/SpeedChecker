@@ -17,16 +17,17 @@ namespace Test_task.Custom.SignalR {
 
         public readonly Object syncRoot = new Object();
         public string UserKey { get; private set; }
-
         public LinkedList<string> ConnectionIds { get; private set; }
 
-        public int MaxConnectionPerUser { get; set; } = 10;
+        public int MaxConnectionsPerUser { get; set; } = 10;
+        public long LastActivity { get; set; }
 
         public User(string connectionId, string userKey) {
             _hub = GlobalHost.ConnectionManager.GetHubContext<SessionHub>();
             ConnectionIds = new LinkedList<string>();
             ConnectionIds.AddLast(connectionId);
             UserKey = userKey;
+            UpdateLastActivityTime();
         }
 
         public void AddTestMessage(string message) {
@@ -72,10 +73,15 @@ namespace Test_task.Custom.SignalR {
                 _worker.Start();
         }
 
+        private void UpdateLastActivityTime() {
+            LastActivity = DateTime.Now.Ticks;
+        }
+
         private void _worker_PageAnalyzeCompleted(object sender, CustomEventArgs.PageAnalyzeCompletedEventArgs e) {
             foreach(var cid in ConnectionIds) {
                 _hub.Clients.Client(cid).pageAnalyzeCompleted();
             }
+            UpdateLastActivityTime();
         }
 
         private void _worker_PageStateChanged(object sender, CustomEventArgs.PageStateChangedEventArgs e) {
@@ -104,7 +110,7 @@ namespace Test_task.Custom.SignalR {
         }
 
         public void AddConnectionId(string newConnectionId) {
-            if(ConnectionIds.Count >= MaxConnectionPerUser) {
+            if(ConnectionIds.Count >= MaxConnectionsPerUser) {
                 //SendErrorMessage("Too many connections to the website. Please make sure you are not using same tool in multiply tabs.");
                 //return;
                 ConnectionIds.RemoveFirst();
@@ -113,10 +119,12 @@ namespace Test_task.Custom.SignalR {
                 ConnectionIds.AddLast(newConnectionId);
             //_hub = GlobalHost.ConnectionManager.GetHubContext<SessionHub>();
             SetGuiState(_worker != null ? 1 : 0, newConnectionId);
+            UpdateLastActivityTime();
         }
 
         public void RemoveConnectionId(string connectionId) {
             ConnectionIds.Remove(connectionId);
+            UpdateLastActivityTime();
         }
 
         private void _worker_NewTestMessage(object sender, string e) {
@@ -127,13 +135,12 @@ namespace Test_task.Custom.SignalR {
             CloseSession();
             _worker = null;
             SetGuiState(0);
-            if(ConnectionIds.Count == 0) {
-                SessionHub.RemoveUser(UserKey);
-            }
+            UpdateLastActivityTime();
         }
 
         private void _worker_WorkerStarted(object sender, EventArgs e) {
             SetGuiState(1);
+            UpdateLastActivityTime();
         }
 
         public void CloseWorker() {

@@ -15,16 +15,23 @@ namespace Test_task.Custom.SignalR {
 
         //private static HashSet<string> _connections = new HashSet<string>();
         private static ConcurrentDictionary<string, User> _clients = new ConcurrentDictionary<string, User>();
-        private static string PrivateSecret = "Пенчекряк";
+        private static string _privateSecret = "Пенчекряк";
+        private static int _maxClientsCount = 100;
 
-        public static void RemoveUser(string userKey) {
-            User res;
-            _clients.TryRemove(userKey, out res);
+        public static void RemoveOldUsers() {
+            if(_clients.Count < _maxClientsCount)
+                return;
+            foreach(var v in _clients
+                    .Where(x => !x.Value.HasWorker() && (DateTime.Now.Ticks - x.Value.LastActivity) > TimeSpan.TicksPerSecond * 30)
+                    .Select(x => x.Key)) {
+                User res;
+                _clients.TryRemove(v, out res);
+            }
         }
 
         private static string CreateNewUserKey(string clientId) {
             return string.Join("", MD5.Create()
-                .ComputeHash(Encoding.UTF8.GetBytes(PrivateSecret + DateTime.Now.Ticks.ToString() + clientId))
+                .ComputeHash(Encoding.UTF8.GetBytes(_privateSecret + DateTime.Now.Ticks.ToString() + clientId))
                 .Select(x => x.ToString("X02")));
         }
 
@@ -38,10 +45,11 @@ namespace Test_task.Custom.SignalR {
 
         public override Task OnConnected() {
             string key = Context.QueryString["UserKey"];
-            if(string.IsNullOrEmpty(key)){
+            if(string.IsNullOrEmpty(key)) {
                 key = CreateNewUserKey(Context.ConnectionId);
                 _clients[key] = new User(Context.ConnectionId, key);
                 Clients.Caller.setUserKey(key);
+                RemoveOldUsers();
             } else {
                 if(_clients.ContainsKey(key)) {
                     _clients[key].AddConnectionId(Context.ConnectionId);
@@ -67,6 +75,7 @@ namespace Test_task.Custom.SignalR {
                 _clients[key] = new User(Context.ConnectionId, key);
                 Clients.Caller.setUserKey(key);
                 Clients.Caller.setGuiState(0);
+                RemoveOldUsers();
             }
             return base.OnReconnected();
         }

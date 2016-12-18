@@ -111,7 +111,8 @@
         }
 
         function showError(msg, permanent) {
-            setState("Failed");
+            if(permanent !== true)
+                setState("Failed");
             $("#errorMessage").html(msg);
             $("#errorMessageContainer").removeClass("hidden");
             if (typeof LastIntervalId !== 'undefined') {
